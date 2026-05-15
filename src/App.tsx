@@ -1,7 +1,8 @@
-import React, { useState, useRef, Suspense } from 'react';
+import React, { useState, useRef, Suspense, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Environment, ContactShadows, Center, useGLTF, Bounds, Grid, CameraControls } from '@react-three/drei';
+import { ContactShadows, Center, Grid, CameraControls } from '@react-three/drei';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import * as THREE from 'three';
 import { 
   ArrowRight, 
@@ -16,6 +17,30 @@ import {
   Palette,
   Download
 } from 'lucide-react';
+import { Component } from 'react';
+
+class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="absolute inset-0 flex items-center justify-center z-20">
+          <div className="glass px-6 py-4 rounded-xl border border-red-500/30 text-center">
+            <p className="text-red-400 font-mono text-sm">3D render error</p>
+            <p className="text-zinc-500 text-xs mt-1">Try refreshing the page</p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const FADE_UP_ANIMATION_VARIANTS = {
   hidden: { opacity: 0, y: 30 },
@@ -46,6 +71,15 @@ export default function App() {
   );
 }
 
+function _DebugApp() {
+  return (
+    <div style={{ minHeight: '100vh', background: '#111', color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
+      <h1 style={{ fontSize: '2rem', marginBottom: '1rem' }}>React is working!</h1>
+      <p style={{ color: '#aaa' }}>If you see this, React rendered successfully.</p>
+    </div>
+  );
+}
+
 // ==========================================
 // 🚨 模型配置区 🚨
 // 将下面的 URL 替换为你的 3D 模型地址
@@ -54,7 +88,7 @@ export default function App() {
 // 方案一（推荐）：将模型存放在外部云盘或对象存储（如阿里云 OSS、GitHub Releases），然后把直链 URL 填到这里。
 // 方案二：压缩你的模型（使用 Blender 或 gltfpack 等工具）到 30MB 以内，然后在 AI Studio 左侧文件树中点击 "Upload" 传到根目录。
 // ==========================================
-const MY_MODEL_URL = "/db32714b640af80536f41fc74f243a91.glb";
+const MY_MODEL_URL = "/3d-portfolio/db32714b640af80536f41fc74f243a91.glb";
 
 function CameraAnimator({ activeView, onUserInteract }: { activeView: string, onUserInteract: () => void }) {
   const controlsRef = useRef<any>(null);
@@ -218,31 +252,18 @@ function HeroSection() {
                 if (activeView !== 'iso') setActiveView('iso');
              }}
            >
+             <ErrorBoundary>
              <Canvas camera={{ position: [3, 2, 5], fov: 45 }}>
                <ambientLight intensity={0.25} />
                <directionalLight position={[8, 10, 5]} intensity={8} color="#ffffff" castShadow />
-
-               <Suspense fallback={null}>
-                 <Center>
-                   <UserCustomModel url={MY_MODEL_URL} />
-                 </Center>
-                 
-                 <Grid 
-                   position={[0, -1, 0]} 
-                   args={[30, 30]} 
-                   cellSize={0.5} 
-                   cellThickness={0.5} 
-                   cellColor="#1a1a1a" 
-                   sectionSize={2.5} 
-                   sectionThickness={1} 
-                   sectionColor="#333333" 
-                   fadeDistance={15} 
-                   fadeStrength={1} 
-                 />
-                 <ContactShadows position={[0, -0.99, 0]} opacity={0.6} scale={20} blur={2.5} far={4} color="#000000" />
-               </Suspense>
+               <Center>
+                 <UserCustomModel url={MY_MODEL_URL} />
+               </Center>
+               <Grid position={[0, -1, 0]} args={[30, 30]} cellSize={0.5} cellThickness={0.5} cellColor="#1a1a1a" sectionSize={2.5} sectionThickness={1} sectionColor="#333333" fadeDistance={15} fadeStrength={1} />
+               <ContactShadows position={[0, -0.99, 0]} opacity={0.6} scale={20} blur={2.5} far={4} color="#000000" />
                <CameraAnimator activeView={activeView} onUserInteract={() => setActiveView('iso')} />
              </Canvas>
+             </ErrorBoundary>
            </div>
            
            <div className="absolute top-6 left-6 flex justify-between items-end z-20 pointer-events-none">
@@ -563,8 +584,41 @@ function Footer() {
   );
 }
 
+function LoadingSpinner() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-10 h-10 border-2 border-zinc-600 border-t-zinc-300 rounded-full animate-spin" />
+        <span className="text-sm font-mono text-zinc-500">Loading 3D model...</span>
+      </div>
+    </div>
+  );
+}
+
 function UserCustomModel({ url }: { url: string }) {
-  const { scene } = useGLTF(url);
+  const [scene, setScene] = useState<THREE.Group | null>(null);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loader = new GLTFLoader();
+    setScene(null);
+    setLoadError(false);
+    loader.load(
+      url,
+      (gltf) => {
+        if (!cancelled) setScene(gltf.scene);
+      },
+      undefined,
+      () => {
+        if (!cancelled) setLoadError(true);
+      }
+    );
+    return () => { cancelled = true; };
+  }, [url]);
+
+  if (loadError) return null;
+  if (!scene) return null;
   return <primitive object={scene} scale={1.8} />;
 }
 
